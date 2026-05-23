@@ -764,8 +764,15 @@ def add_hair_cap(verts_3d, hair_color=(0.026, 0.020, 0.018)):
     # Max Z allowed: boundary center Z minus a margin, so hair cap stays behind forehead
     max_z = center[2] + head_d * 0.05
 
-    # Hairline cut: only show above hairline Y (raise to ~25% above center = forehead top)
-    hairline_y = center[1] + head_h * 0.22
+    # Per-longitude hairline: high at front-center (shows forehead), dips low at
+    # the temples/sides and back so the hair frames the face instead of reading
+    # as a flat swim-cap. theta: 0/pi = sides, pi/2 = front (z+), 3pi/2 = back.
+    def local_hairline(theta):
+        return center[1] + head_h * (0.10 + 0.14 * math.sin(theta)
+                                          - 0.16 * abs(math.cos(theta)))
+
+    # Lowest point any hairline reaches — stop building rows below this.
+    min_hairline = center[1] - head_h * 0.10
 
     # Build ellipsoid mesh using UV sphere parametrization
     n_lon = 20   # longitude divisions
@@ -779,16 +786,18 @@ def add_hair_cap(verts_3d, hair_color=(0.026, 0.020, 0.018)):
         phi = math.pi * lat / n_lat   # 0=top, pi=bottom
         y_unit = math.cos(phi)        # 1 at top, -1 at bottom
         y_world = cap_center[1] + ry * y_unit
-        if y_world < hairline_y:
-            # Below hairline — stop here, will add rim cap
+        if y_world < min_hairline:
+            # Below the lowest hairline — stop here, will add rim cap
             break
         row = []
         for lon in range(n_lon):
             theta = 2 * math.pi * lon / n_lon
+            # Clamp each vertex up to its local hairline → scalloped hem framing face
+            vy = max(y_world, local_hairline(theta))
             x = cap_center[0] + rx * math.sin(phi) * math.cos(theta)
             z_raw = cap_center[2] + rz * math.sin(phi) * math.sin(theta)
             z = min(z_raw, max_z)   # clamp so hair cap doesn't protrude past forehead
-            row.append((x, y_world, z))
+            row.append((x, vy, z))
         verts_out.extend(row)
         lat_rows.append(len(lat_rows))   # track which lat rows were added
 
@@ -900,15 +909,22 @@ def add_cranium(verts_3d, skin_color):
 
 def add_neck(verts_3d, skin_color):
     """Simple neck cylinder from chin down."""
-    CHIN = [152, 148, 176, 149, 150, 136, 172, 58, 132, 93]
+    # Symmetric jawline set (left + center + right) so the mean X stays centered.
+    CHIN = [152,                       # center chin
+            148, 176, 149, 150, 136, 172, 58, 132, 93,   # left jaw
+            377, 400, 378, 379, 365, 397, 288, 361, 323]  # right jaw
     chin_pts = np.array([verts_3d[i] for i in CHIN if i < len(verts_3d)])
     center = chin_pts.mean(axis=0)
-    radius = np.ptp(chin_pts[:, 0]) * 0.42
+    radius = np.ptp(chin_pts[:, 0]) * 0.34
 
-    # Rotate 90° around X so cylinder extends in -Y (downward) not Z (into camera)
-    bpy.ops.mesh.primitive_cylinder_add(
-        radius=radius, depth=3.0, vertices=20,
-        location=(center[0], center[1] - 1.7, center[2] - 0.5),
+    # Tapered cone: narrow at top (radius1), flaring slightly wider toward the
+    # shoulders (radius2). Rotated 90° about X so the narrow end points up and the
+    # wide end points down (-Y). The narrow top is placed high enough to sit just
+    # under the jaw and kept near the face plane in Z so it visibly connects to the
+    # chin with no gap; the face (opaque) paints over the upper overlap.
+    bpy.ops.mesh.primitive_cone_add(
+        radius1=radius, radius2=radius * 1.35, depth=3.4, vertices=24,
+        location=(center[0], center[1] - 1.3, center[2] - 0.2),
         rotation=(math.radians(90), 0, 0)
     )
     neck = bpy.context.object

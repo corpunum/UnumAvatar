@@ -193,7 +193,7 @@ loader.load('unum_avatar_v6.glb?' + Date.now(), (gltf) => {
       // Neck: unlit skin, renders behind face
       if (child.name.startsWith('Neck')) {
         child.material = new THREE.MeshBasicMaterial({
-          color: new THREE.Color().setStyle('#AB6E51'),
+          color: new THREE.Color().setStyle('#A65645'),
           side: THREE.FrontSide
         });
         child.renderOrder = 0;
