@@ -179,16 +179,16 @@ def bake_texture(mp_pts_raw, img_w, img_h):
     lo_u, lo_v = to_tex(inner_lo_pts)
     # Mouth hole: anchored at inner upper lip — exposed when lower jaw drops.
     # In source photo the mouth is barely open, so we use fixed pixel height.
+    # Very thin horizontal slit at INNER upper lip only — barely visible at rest,
+    # exposed when lower jaw drops away.
     mx_t = up_u.mean()
-    my_t = (up_v.mean() + lo_v.mean()) / 2   # between inner lips
-    mw = (up_u.max() - up_u.min()) * 0.48    # half-width: ~48% of inner mouth span
-    mh_t = 55.0  # fixed 110-pixel tall hole in 2048 texture (~jaw travel distance)
-    # Elliptical hole — sized for visible jaw-open animation
+    my_t = up_v.mean()   # anchor at inner upper lip
+    mw = (up_u.max() - up_u.min()) * 0.42   # half-width
+    mh_t = 9.0   # 18px tall — thin slit, almost invisible at rest
     mdx = (X - mx_t) / max(mw, 1)
     mdy = (Y - my_t) / max(mh_t, 1)
     mouth_dist = np.sqrt(mdx**2 + mdy**2)
-    # Transparent inside dist=0.75, fade to opaque at dist=1.2
-    mouth_alpha_inv = np.clip((mouth_dist - 0.75) / 0.45, 0.0, 1.0)
+    mouth_alpha_inv = np.clip((mouth_dist - 0.5) / 0.5, 0.0, 1.0)
     alpha_f = alpha_f * mouth_alpha_inv
 
     texture_rgba[:, :, 3] = (alpha_f * 255).astype(np.uint8)
