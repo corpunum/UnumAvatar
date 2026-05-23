@@ -164,23 +164,31 @@ def bake_texture(mp_pts_raw, img_w, img_h):
     # inner mouth center is at ~53% across, ~70% down in the cropped texture.
     # Use actual inner-lip landmark positions to place mouth hole accurately.
     # mp_pts_raw is in original image pixels; convert to crop-texture UV space.
-    INNER_ALL = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308,
-                 95, 88, 178, 87, 14, 317, 402, 318, 324]
-    inner_pts = np.array([mp_pts_raw[i, :2] for i in INNER_ALL
-                           if i < mp_pts_raw.shape[0]])
+    INNER_UP  = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308]
+    INNER_LO  = [78, 95, 88, 178, 87, 14, 317, 402, 318, 324]
+    inner_up_pts = np.array([mp_pts_raw[i, :2] for i in INNER_UP
+                              if i < mp_pts_raw.shape[0]])
+    inner_lo_pts = np.array([mp_pts_raw[i, :2] for i in INNER_LO
+                              if i < mp_pts_raw.shape[0]])
     # Convert to texture pixel space
-    inner_u = (inner_pts[:, 0] - cx0) / (cx1 - cx0) * w
-    inner_v = (inner_pts[:, 1] - cy0) / (cy1 - cy0) * h
-    mx_t = inner_u.mean()
-    my_t = inner_v.mean()
-    mw = (inner_u.max() - inner_u.min()) * 0.55   # half-width = 55% of inner mouth span
-    mh_t = (inner_v.max() - inner_v.min()) * 0.70  # half-height = 70% of inner mouth height
-    # Elliptical hole centered on inner lip center
+    def to_tex(pts):
+        u = (pts[:, 0] - cx0) / (cx1 - cx0) * w
+        v = (pts[:, 1] - cy0) / (cy1 - cy0) * h
+        return u, v
+    up_u, up_v = to_tex(inner_up_pts)
+    lo_u, lo_v = to_tex(inner_lo_pts)
+    # Mouth hole: anchored at inner upper lip — exposed when lower jaw drops.
+    # In source photo the mouth is barely open, so we use fixed pixel height.
+    mx_t = up_u.mean()
+    my_t = (up_v.mean() + lo_v.mean()) / 2   # between inner lips
+    mw = (up_u.max() - up_u.min()) * 0.48    # half-width: ~48% of inner mouth span
+    mh_t = 55.0  # fixed 110-pixel tall hole in 2048 texture (~jaw travel distance)
+    # Elliptical hole — sized for visible jaw-open animation
     mdx = (X - mx_t) / max(mw, 1)
     mdy = (Y - my_t) / max(mh_t, 1)
     mouth_dist = np.sqrt(mdx**2 + mdy**2)
-    # Transparent inside dist=0.8, fade to opaque at dist=1.3
-    mouth_alpha_inv = np.clip((mouth_dist - 0.8) / 0.5, 0.0, 1.0)
+    # Transparent inside dist=0.75, fade to opaque at dist=1.2
+    mouth_alpha_inv = np.clip((mouth_dist - 0.75) / 0.45, 0.0, 1.0)
     alpha_f = alpha_f * mouth_alpha_inv
 
     texture_rgba[:, :, 3] = (alpha_f * 255).astype(np.uint8)
