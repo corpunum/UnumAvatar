@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Unum Avatar Head - Preview</title>
+<style>
+  body { margin: 0; background: #1a1a2e; overflow: hidden; font-family: sans-serif; }
+  #info {
+    position: absolute; top: 10px; left: 10px; color: #0ff; font-size: 14px;
+    background: rgba(0,0,0,0.7); padding: 10px; border-radius: 8px;
+  }
+  #controls {
+    position: absolute; bottom: 10px; left: 10px; color: #fff; font-size: 13px;
+    background: rgba(0,0,0,0.7); padding: 10px; border-radius: 8px;
+  }
+  .slider-row { margin: 4px 0; display: flex; align-items: center; gap: 8px; }
+  .slider-row label { width: 140px; color: #0ff; }
+  input[type=range] { width: 150px; }
+</style>
+</head>
+<body>
+
+<div id="info">
+  <strong>Unum Avatar Head</strong><br>
+  Drag to rotate · Scroll to zoom<br>
+  <span id="stats"></span>
+</div>
+
+<div id="controls">
+  <strong>Blendshapes</strong>
+  <div id="sliders"></div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 0, 120);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0, 0);
+controls.enableDamping = true;
+
+// Lighting
+const ambient = new THREE.AmbientLight(0x606080, 2.5);
+scene.add(ambient);
+
+const keyLight = new THREE.DirectionalLight(0xffffff, 2.0);
+keyLight.position.set(30, 30, 50);
+scene.add(keyLight);
+
+const fillLight = new THREE.DirectionalLight(0x4488ff, 0.8);
+fillLight.position.set(-30, 10, 30);
+scene.add(fillLight);
+
+const rimLight = new THREE.DirectionalLight(0x00ffff, 0.5);
+rimLight.position.set(0, 20, -40);
+scene.add(rimLight);
+
+// Load GLB
+const loader = new GLTFLoader();
+loader.load('unum_avatar_v6.glb?' + Date.now(), (gltf) => {
+  // Find the face mesh (the one with morph targets)
+  let mesh = null;
+  gltf.scene.traverse((child) => {
+    if (child.isMesh) {
+      if (child.material) {
+        child.material.side = THREE.DoubleSide;
+        child.material.flatShading = false;
+        child.material.needsUpdate = true;
+      }
+      if (child.morphTargetInfluences && child.morphTargetInfluences.length > 0) {
+        mesh = child;
+        child.renderOrder = 10;
+      }
+      if (child.name && child.name.startsWith('Eyeball')) {
+        child.renderOrder = -1;
+      }
+      if (child.name && child.name.startsWith('EyelidOccluder')) {
+        child.renderOrder = 5;
+      }
+    }
+  });
+
+  window.__mesh = mesh;
+  window.__THREE = THREE;
+
+  scene.add(gltf.scene);
+
+  // Auto-frame camera on bounding box
+  const box = new THREE.Box3().setFromObject(gltf.scene);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const fov = camera.fov * (Math.PI / 180);
+  const dist = Math.abs(maxDim / (2 * Math.tan(fov / 2))) * 1.6;
+  controls.target.copy(center);
+  camera.position.set(center.x, center.y, center.z + dist);
+  camera.updateProjectionMatrix();
+  controls.update();
+
+  const geo = mesh.geometry;
+  document.getElementById('stats').textContent =
+    `${geo.attributes.position.count} verts · ${geo.index.count / 3} tris · ${geo.morphAttributes.position ? geo.morphAttributes.position.length : 0} morphs`;
+
+  // Build blendshape sliders
+  const names = gltf.parser.json.meshes[0].extras?.targetNames || [];
+  const slidersDiv = document.getElementById('sliders');
+  names.forEach((name, i) => {
+    const row = document.createElement('div');
+    row.className = 'slider-row';
+    row.innerHTML = `<label>${name}</label><input type="range" min="0" max="100" value="0" data-idx="${i}"><span>0</span>`;
+    slidersDiv.appendChild(row);
+    const slider = row.querySelector('input');
+    const val = row.querySelector('span');
+    slider.addEventListener('input', () => {
+      const w = slider.value / 100;
+      mesh.morphTargetInfluences[i] = w;
+      val.textContent = slider.value;
+    });
+  });
+
+  console.log('Model loaded:', mesh, 'morphs:', names);
+}, undefined, (err) => {
+  console.error('Load error:', err);
+  document.getElementById('stats').textContent = 'Error loading model!';
+});
+
+// Animation
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>

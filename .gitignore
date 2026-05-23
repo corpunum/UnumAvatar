@@ -1,0 +1,54 @@
+# Large binary outputs
+output/frames/
+output/eye_patch_*.png
+output/unum_skin_*.png
+output/EyeballL_*.png
+output/EyeballR_*.png
+output/unum_head*.glb
+output/avatar_speaking_v*.mp4
+output/face_data*.json
+output/frames_batch*.json
+output/speech_rhubarb.json
+output/test_speech.wav
+
+# Models / data
+data/face_landmarker.task
+data/voices/
+
+# Input photos (private)
+input/
+
+# Tools (large)
+tools/
+
+# Python
+__pycache__/
+*.pyc
+*.npz
+*.npy
+venv/
+.venv/
+
+# Old output artifacts
+output/v[0-9]*.png
+output/debug_*.png
+output/eye_*.png
+output/iris_*.png
+output/sclera_*.png
+output/hazel_*.jpg
+output/*_v[0-9]*.jpg
+output/unlit_*.jpg
+output/noeye_*.jpg
+output/photoeye_*.jpg
+output/unum-avatar-v*.png
+output/talking-*.png
+output/unum_head*.obj
+output/unum_head*.mtl
+output/unum_head_texture*.png
+output/blendshape_targets*.npz
+output/face_landmarks.npy
+output/browser_preview_*.png
+output/avatar_raw.*
+
+# Blender temp
+*.blend1
