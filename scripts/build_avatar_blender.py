@@ -184,7 +184,7 @@ def bake_texture(mp_pts_raw, img_w, img_h):
     mx_t = up_u.mean()
     my_t = up_v.mean()   # anchor at inner upper lip
     mw = (up_u.max() - up_u.min()) * 0.42   # half-width
-    mh_t = 9.0   # 18px tall — thin slit, almost invisible at rest
+    mh_t = 14.0  # 28px tall — visible when jaw opens, subtle at rest
     mdx = (X - mx_t) / max(mw, 1)
     mdy = (Y - my_t) / max(mh_t, 1)
     mouth_dist = np.sqrt(mdx**2 + mdy**2)
@@ -343,7 +343,7 @@ def add_shape_keys(face_obj, verts_3d):
         return d
 
     sc = 0.6    # eye/brow scale
-    sm = 0.52   # mouth/jaw scale — increased for more visible jaw drop
+    sm = 0.65   # mouth/jaw scale — larger for clearly visible jaw drop
 
     shapes = {
         "Basis": make_delta([]),

@@ -355,8 +355,8 @@ function updateLipSync(time) {
   const openSignal  = Math.max(rawJaw, rawOpen, rawFunnel * 0.5);
   const closeSignal = rawClose * Math.max(0, 1.0 - openSignal * 1.5);
 
-  setMorph('jawOpen',    Math.min(rawJaw * 1.4, 1.0));   // boost jaw 40%
-  setMorph('mouthOpen',  Math.min(rawOpen * 1.3, 1.0));
+  setMorph('jawOpen',    Math.min(rawJaw * 1.8, 1.0));   // boost jaw 80%
+  setMorph('mouthOpen',  Math.min(rawOpen * 1.6, 1.0));
   setMorph('mouthClose', closeSignal);
   setMorph('mouthFunnel', rawFunnel);
   setMorph('mouthPucker', rawPucker);
