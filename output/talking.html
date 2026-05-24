@@ -182,10 +182,11 @@ loader.load('unum_avatar_v6.glb?' + Date.now(), (gltf) => {
   // Apply unlit materials to skin/hair meshes so they match face quality
   gltf.scene.traverse(child => {
     if (child.isMesh && child.name) {
-      // Cranium and ears: unlit warm skin tone (#AB6E51 sRGB)
+      // Cranium and ears: skin tone sampled from the face-texture perimeter
+      // (forehead/temples avg #C37D5D) to minimize the seam against the photo face
       if (child.name.startsWith('Cranium') || child.name.startsWith('Ear')) {
         child.material = new THREE.MeshBasicMaterial({
-          color: new THREE.Color().setStyle('#AB6E51'),
+          color: new THREE.Color().setStyle('#C37D5D'),
           side: THREE.FrontSide
         });
         child.renderOrder = 1;
@@ -355,8 +356,10 @@ function updateLipSync(time) {
   const openSignal  = Math.max(rawJaw, rawOpen, rawFunnel * 0.5);
   const closeSignal = rawClose * Math.max(0, 1.0 - openSignal * 1.5);
 
-  setMorph('jawOpen',    Math.min(rawJaw * 1.8, 1.0));   // boost jaw 80%
-  setMorph('mouthOpen',  Math.min(rawOpen * 1.6, 1.0));
+  // Gamma lift (exp < 1) makes mid-range speech values (~0.3-0.5) open faster,
+  // then a strong gain; clamped at 1.0. Keeps speech mouth movement legible on video.
+  setMorph('jawOpen',    Math.min(Math.pow(rawJaw, 0.8) * 2.4, 1.0));
+  setMorph('mouthOpen',  Math.min(Math.pow(rawOpen, 0.8) * 2.0, 1.0));
   setMorph('mouthClose', closeSignal);
   setMorph('mouthFunnel', rawFunnel);
   setMorph('mouthPucker', rawPucker);

@@ -761,22 +761,25 @@ def add_hair_cap(verts_3d, hair_color=(0.026, 0.020, 0.018)):
     # Center is pushed backward so front of ellipsoid aligns with forehead, not nose
     cap_center = (center[0], center[1] + head_h * 0.08, center[2] - head_d * 0.25)
 
-    # Max Z allowed: boundary center Z minus a margin, so hair cap stays behind forehead
-    max_z = center[2] + head_d * 0.05
+    # Max Z allowed: boundary center Z plus a small margin. Slightly looser than
+    # before so the crown keeps a bit of forward volume instead of a flat disc.
+    max_z = center[2] + head_d * 0.12
 
     # Per-longitude hairline: high at front-center (shows forehead), dips low at
     # the temples/sides and back so the hair frames the face instead of reading
     # as a flat swim-cap. theta: 0/pi = sides, pi/2 = front (z+), 3pi/2 = back.
     def local_hairline(theta):
+        # Small higher-frequency wobble makes the hem look organic, not a clean curve.
+        wobble = 0.012 * math.sin(theta * 7.0) + 0.008 * math.sin(theta * 13.0)
         return center[1] + head_h * (0.10 + 0.14 * math.sin(theta)
-                                          - 0.16 * abs(math.cos(theta)))
+                                          - 0.16 * abs(math.cos(theta)) + wobble)
 
     # Lowest point any hairline reaches — stop building rows below this.
     min_hairline = center[1] - head_h * 0.10
 
     # Build ellipsoid mesh using UV sphere parametrization
-    n_lon = 20   # longitude divisions
-    n_lat = 14   # latitude divisions
+    n_lon = 24   # longitude divisions
+    n_lat = 18   # latitude divisions (more rows → smoother silhouette/hem)
 
     verts_out = []
     faces_out = []
@@ -915,20 +918,67 @@ def add_neck(verts_3d, skin_color):
             377, 400, 378, 379, 365, 397, 288, 361, 323]  # right jaw
     chin_pts = np.array([verts_3d[i] for i in CHIN if i < len(verts_3d)])
     center = chin_pts.mean(axis=0)
-    radius = np.ptp(chin_pts[:, 0]) * 0.34
+    width = np.ptp(chin_pts[:, 0])
+    r_top = width * 0.30     # narrow top tucks behind the jaw → no hard seam
+    r_bot = width * 0.42     # modest flare toward the shoulders
+    depth = 3.4
+    top_y = center[1] - 1.1  # raised so the jaw covers the top overlap
+    cz = center[2] - 0.2     # near face plane so it connects with no gap
 
-    # Tapered cone: narrow at top (radius1), flaring slightly wider toward the
-    # shoulders (radius2). Rotated 90° about X so the narrow end points up and the
-    # wide end points down (-Y). The narrow top is placed high enough to sit just
-    # under the jaw and kept near the face plane in Z so it visibly connects to the
-    # chin with no gap; the face (opaque) paints over the upper overlap.
-    bpy.ops.mesh.primitive_cone_add(
-        radius1=radius, radius2=radius * 1.35, depth=3.4, vertices=24,
-        location=(center[0], center[1] - 1.3, center[2] - 0.2),
-        rotation=(math.radians(90), 0, 0)
-    )
-    neck = bpy.context.object
-    neck.name = "Neck"
+    # Build a custom tapered neck: ring-interpolated from top (r_top) to bottom
+    # (r_bot), then a rounded hemispherical bottom cap so the lower edge isn't a
+    # hard flat n-gon when the canvas shows below the chin. Axis runs down -Y.
+    n_seg = 24       # radial segments
+    n_rings = 6      # vertical rings along the trunk
+    n_cap = 4        # rings of the rounded bottom dome
+    verts = []
+    ring_idx = []
+    for ri in range(n_rings + 1):
+        t = ri / n_rings
+        y = top_y - t * depth
+        r = r_top * (1 - t) + r_bot * t
+        start = len(verts)
+        for s in range(n_seg):
+            a = 2 * math.pi * s / n_seg
+            verts.append((center[0] + r * math.cos(a), y, cz + r * math.sin(a)))
+        ring_idx.append((start, r, y))
+
+    # Rounded bottom dome: shrink radius along a quarter sine, drop y by a small bulge
+    bot_start, bot_r, bot_y = ring_idx[-1]
+    dome_depth = r_bot * 0.8
+    for ci in range(1, n_cap + 1):
+        u = ci / n_cap            # 0→1
+        r = bot_r * math.cos(u * math.pi / 2)
+        y = bot_y - dome_depth * math.sin(u * math.pi / 2)
+        start = len(verts)
+        for s in range(n_seg):
+            a = 2 * math.pi * s / n_seg
+            verts.append((center[0] + r * math.cos(a), y, cz + r * math.sin(a)))
+        ring_idx.append((start, r, y))
+    # Pole at the very bottom
+    pole_idx = len(verts)
+    verts.append((center[0], bot_y - dome_depth, cz))
+
+    faces = []
+    total_rings = len(ring_idx)
+    for ri in range(total_rings - 1):
+        a0 = ring_idx[ri][0]
+        a1 = ring_idx[ri + 1][0]
+        for s in range(n_seg):
+            sn = (s + 1) % n_seg
+            faces.append([a0 + s, a0 + sn, a1 + sn, a1 + s])
+    last_start = ring_idx[-1][0]
+    for s in range(n_seg):
+        sn = (s + 1) % n_seg
+        faces.append([last_start + s, last_start + sn, pole_idx])
+
+    mesh = bpy.data.meshes.new("NeckMesh")
+    mesh.from_pydata(verts, [], faces)
+    mesh.validate()
+    neck = bpy.data.objects.new("Neck", mesh)
+    bpy.context.collection.objects.link(neck)
+    bpy.context.view_layer.objects.active = neck
+    neck.select_set(True)
     bpy.ops.object.shade_smooth()
 
     mat = make_material("Neck", base_color=(*skin_color, 1.0),
