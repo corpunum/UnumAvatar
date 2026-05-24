@@ -14,7 +14,7 @@ Produces: output/unum_avatar_v6.glb
   - Clean glTF export
 """
 
-import sys, os, json, math
+import sys, os, json, math, random
 
 # Remove any external venv paths that conflict with Blender's Python
 sys.path = [p for p in sys.path if "python3.12" not in p and "/venv/" not in p]
@@ -848,6 +848,143 @@ def add_hair_cap(verts_3d, hair_color=(0.026, 0.020, 0.018)):
     return obj
 
 
+def add_hair_cards(verts_3d, hair_color=(0.026, 0.020, 0.018)):
+    """Add alpha-textured hair cards around the hairline to break the smooth cap look."""
+    import bmesh
+    from PIL import Image as _PILImage
+
+    face_w = np.linalg.norm(verts_3d[234] - verts_3d[454])
+    head_h = np.linalg.norm(verts_3d[10] - verts_3d[152])
+    center = (verts_3d[234] + verts_3d[454]) / 2.0
+    forehead = verts_3d[10]
+    head_d = face_w * 0.82
+
+    # Card dimensions
+    card_w = face_w * 0.12    # wider strips for visibility
+    card_h = head_h * 0.30    # longer for wispy look
+
+    # Place cards along hairline arc: forehead, temples, sides
+    # Each card: position, normal direction (outward), up direction
+    cards = []
+
+    # Forehead cards (arc across top)
+    n_fore = 10
+    for i in range(n_fore):
+        t = (i + 0.5) / n_fore  # 0..1 across forehead
+        angle = math.pi * (0.25 + 0.5 * t)  # 45° to 135° arc
+        x = center[0] + face_w * 0.52 * math.cos(angle)
+        y = forehead[1] - head_h * 0.04  # drop below hairline so cards drape down
+        z = forehead[2] + face_w * 0.22  # well in front of cap
+        # Normal: pointing forward-down so cards hang over the hairline
+        nx = math.cos(angle) * 0.2
+        ny = -0.6
+        nz = 0.8
+        cards.append(((x, y, z), (nx, ny, nz), card_w * (0.8 + 0.5 * random.random()),
+                       card_h * (0.8 + 0.7 * random.random())))
+
+    # Temple/side cards (left and right, hanging down)
+    for side in [-1, 1]:
+        n_side = 6
+        for i in range(n_side):
+            t = i / n_side
+            x = center[0] + side * face_w * 0.58  # push outward past cap edge
+            y = forehead[1] - head_h * 0.05 - head_h * 0.20 * t
+            z = forehead[2] + face_w * 0.12
+            nx = side * 0.9
+            ny = -0.4
+            nz = 0.2
+            cards.append(((x, y, z), (nx, ny, nz),
+                          card_w * (0.6 + 0.5 * random.random()),
+                          card_h * (0.8 + 0.5 * random.random())))
+
+    # Back wisps (along the back of the head, hanging down)
+    n_back = 8
+    for i in range(n_back):
+        t = (i + 0.5) / n_back
+        angle = math.pi * (0.15 + 0.7 * t)
+        x = center[0] + face_w * 0.45 * math.cos(angle)
+        y = center[1] + head_h * 0.15
+        z = center[2] - head_d * 0.45
+        nx = math.cos(angle) * 0.3
+        ny = -0.5
+        nz = -0.8
+        cards.append(((x, y, z), (nx, ny, nz),
+                      card_w * (0.7 + 0.5 * random.random()),
+                      card_h * (0.9 + 0.6 * random.random())))
+
+    # Build mesh: each card is a quad
+    all_verts = []
+    all_faces = []
+    all_uvs = []
+
+    for pos, normal, cw, ch in cards:
+        # Compute card axes from normal
+        n = np.array(normal, dtype=float)
+        n /= np.linalg.norm(n) + 1e-9
+        # Up is mostly +Y
+        up = np.array([0, 1, 0], dtype=float)
+        right = np.cross(n, up)
+        rl = np.linalg.norm(right)
+        if rl < 0.01:
+            right = np.array([1, 0, 0], dtype=float)
+        else:
+            right /= rl
+        up = np.cross(right, n)
+        up /= np.linalg.norm(up) + 1e-9
+
+        p = np.array(pos, dtype=float)
+        hw, hh = cw / 2, ch / 2
+        base = len(all_verts)
+        # 4 corners: bottom-left, bottom-right, top-right, top-left
+        all_verts.append(tuple(p - right * hw - up * hh))
+        all_verts.append(tuple(p + right * hw - up * hh))
+        all_verts.append(tuple(p + right * hw + up * hh))
+        all_verts.append(tuple(p - right * hw + up * hh))
+        all_faces.append([base, base+1, base+2, base+3])
+        # UV: each card maps to the full texture
+        all_uvs.extend([(0, 0), (1, 0), (1, 1), (0, 1)])
+
+    mesh = bpy.data.meshes.new("HairCardsMesh")
+    mesh.from_pydata(all_verts, [], all_faces)
+    mesh.validate()
+
+    # UV layer
+    uv_layer = mesh.uv_layers.new(name="UVMap")
+    for i, loop in enumerate(mesh.loops):
+        uv_layer.data[i].uv = all_uvs[loop.vertex_index]
+
+    obj = bpy.data.objects.new("HairCards", mesh)
+    bpy.context.collection.objects.link(obj)
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+
+    # Load hair strand texture
+    tex_path = os.path.join(OUTPUT, "hair_strand_texture.png")
+    if os.path.exists(tex_path):
+        mat = bpy.data.materials.new("HairCardsMat")
+        mat.use_nodes = True
+        nodes = mat.node_tree.nodes
+        links = mat.node_tree.links
+        nodes.clear()
+        bsdf = nodes.new('ShaderNodeBsdfPrincipled')
+        bsdf.inputs['Base Color'].default_value = (*hair_color, 1.0)
+        bsdf.inputs['Roughness'].default_value = 0.85
+        output = nodes.new('ShaderNodeOutputMaterial')
+        # Texture
+        tex_node = nodes.new('ShaderNodeTexImage')
+        tex_node.image = bpy.data.images.load(tex_path)
+        links.new(tex_node.outputs['Color'], bsdf.inputs['Base Color'])
+        links.new(tex_node.outputs['Alpha'], bsdf.inputs['Alpha'])
+        links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
+        mat.blend_method = 'CLIP'
+        mat.alpha_threshold = 0.35
+    else:
+        mat = make_material("HairCards", base_color=(*hair_color, 1.0),
+                            roughness=0.85, metallic=0.0)
+    obj.data.materials.append(mat)
+    return obj
+
+
 def add_cranium(verts_3d, skin_color):
     """High-quality ellipsoidal cranium stitched to face boundary."""
     BOUNDARY = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361,
@@ -1226,6 +1363,8 @@ def main():
     print("[7/8] Adding cranium + hair + ears + neck...")
     add_cranium(verts_3d, skin_color)
     add_hair_cap(verts_3d)
+    random.seed(42)
+    add_hair_cards(verts_3d)
     add_ears(verts_3d, skin_color)
     add_neck(verts_3d, skin_color)
     add_shoulders(verts_3d, skin_color)

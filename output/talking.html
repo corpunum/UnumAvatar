@@ -222,6 +222,35 @@ loader.load('unum_avatar_v6.glb?' + Date.now(), (gltf) => {
       }
       // Hair cap: renders after cranium, ignores depth so it paints over it;
       // face (renderOrder=10) then paints over hair in the face region.
+      // Hair cards: alpha-blended strands around the hairline
+      if (child.name.startsWith('HairCard')) {
+        if (child.material && child.material.map) {
+          const hairMap = child.material.map;
+          child.material = new THREE.MeshStandardMaterial({
+            map: hairMap,
+            alphaMap: hairMap,
+            transparent: true,
+            alphaTest: 0.35,
+            depthTest: true,
+            depthWrite: false,
+            roughness: 0.85,
+            metalness: 0.0,
+            side: THREE.DoubleSide,
+          });
+        } else {
+          child.material = new THREE.MeshStandardMaterial({
+            color: new THREE.Color().setStyle('#29241F'),
+            transparent: true,
+            opacity: 0.8,
+            depthTest: true,
+            depthWrite: false,
+            roughness: 0.85,
+            metalness: 0.0,
+            side: THREE.DoubleSide,
+          });
+        }
+        child.renderOrder = 4;
+      }
       if (child.name.startsWith('HairCap')) {
         child.material = new THREE.MeshStandardMaterial({
           color: new THREE.Color().setStyle('#29241F'),
