@@ -155,7 +155,7 @@ loader.load('unum_avatar_v6.glb?' + Date.now(), (gltf) => {
             transparent: true,
             side: THREE.DoubleSide,
             depthWrite: false,
-            morphTargets: true,
+
           });
         }
       }
@@ -172,6 +172,10 @@ loader.load('unum_avatar_v6.glb?' + Date.now(), (gltf) => {
             depthWrite: false,
           });
         }
+        // Store for gaze drift animation
+        if (child.name === 'EyeballL') window.__eyeL = child;
+        if (child.name === 'EyeballR') window.__eyeR = child;
+        child.userData.restPos = child.position.clone();
       }
       if (child.name && child.name.startsWith('EyelidOccluder')) {
         child.renderOrder = 5;
@@ -191,8 +195,8 @@ loader.load('unum_avatar_v6.glb?' + Date.now(), (gltf) => {
         });
         child.renderOrder = 1;
       }
-      // Neck: unlit skin, renders behind face
-      if (child.name.startsWith('Neck')) {
+      // Neck + Shoulders: unlit skin, renders behind face
+      if (child.name.startsWith('Neck') || child.name.startsWith('Shoulder')) {
         child.material = new THREE.MeshBasicMaterial({
           color: new THREE.Color().setStyle('#A65645'),
           side: THREE.FrontSide
@@ -234,6 +238,7 @@ loader.load('unum_avatar_v6.glb?' + Date.now(), (gltf) => {
   });
 
   scene.add(gltf.scene);
+  window.__modelRoot = gltf.scene;
 
   const geo = headMesh.geometry;
   // Find morph target names from any mesh that has them
@@ -367,6 +372,27 @@ function updateLipSync(time) {
   setMorph('mouthSmileRight', frame.mouthSmileRight || 0);
 }
 
+// Subtle head micro-motion — slow sway so the head isn't perfectly still
+function applyHeadSway(t) {
+  const root = window.__modelRoot;
+  if (!root) return;
+  root.rotation.y = Math.sin(t * 0.4) * 0.015 + Math.sin(t * 0.9) * 0.008;
+  root.rotation.z = Math.sin(t * 0.3 + 0.5) * 0.008;
+}
+
+// Subtle gaze drift — slow sinusoidal micro-saccades on eye patch quads
+function applyGazeDrift(t) {
+  const eL = window.__eyeL, eR = window.__eyeR;
+  if (!eL || !eR) return;
+  // Two independent slow sine waves for X (horizontal) and Y (vertical)
+  const dx = Math.sin(t * 0.7) * 0.08 + Math.sin(t * 1.3) * 0.04;
+  const dy = Math.sin(t * 0.5 + 1.0) * 0.05;
+  eL.position.x = eL.userData.restPos.x + dx;
+  eL.position.y = eL.userData.restPos.y + dy;
+  eR.position.x = eR.userData.restPos.x + dx;
+  eR.position.y = eR.userData.restPos.y + dy;
+}
+
 // Add subtle idle animation (breathing, micro eye movements)
 let idleTime = 0;
 function updateIdle(dt) {
@@ -374,6 +400,8 @@ function updateIdle(dt) {
   idleTime += dt;
   // Subtle breathing
   setMorph('jawOpen', Math.sin(idleTime * 0.8) * 0.02 + 0.01);
+  applyGazeDrift(idleTime);
+  applyHeadSway(idleTime);
   // Occasional blink — vary period 3-6s, asymmetric close/open (fast close, slow open)
   const blinkPeriod = 4.5;
   const blinkCycle = idleTime % blinkPeriod;
@@ -467,6 +495,8 @@ window.renderFrameAt = function(t) {
     setMorph('eyeBlinkLeft', blinkVal);
     setMorph('eyeBlinkRight', blinkVal);
   }
+  applyGazeDrift(t);
+  applyHeadSway(t);
   // Fixed camera during recording
   camera.position.set(camBasePos.x, camBasePos.y, camBasePos.z);
   controls.update();

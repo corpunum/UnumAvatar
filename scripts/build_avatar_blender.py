@@ -919,9 +919,9 @@ def add_neck(verts_3d, skin_color):
     chin_pts = np.array([verts_3d[i] for i in CHIN if i < len(verts_3d)])
     center = chin_pts.mean(axis=0)
     width = np.ptp(chin_pts[:, 0])
-    r_top = width * 0.30     # narrow top tucks behind the jaw → no hard seam
-    r_bot = width * 0.42     # modest flare toward the shoulders
-    depth = 3.4
+    r_top = width * 0.22     # narrower top tucks behind jaw, less prominent
+    r_bot = width * 0.30     # subtle shoulder flare
+    depth = 2.8              # shorter to reduce visual weight
     top_y = center[1] - 1.1  # raised so the jaw covers the top overlap
     cz = center[2] - 0.2     # near face plane so it connects with no gap
 
@@ -985,6 +985,66 @@ def add_neck(verts_3d, skin_color):
                         roughness=0.65, metallic=0.0)
     neck.data.materials.append(mat)
     return neck
+
+
+def add_shoulders(verts_3d, skin_color):
+    """Flat trapezoidal shoulder silhouette below the neck to ground the head."""
+    CHIN = [152, 148, 176, 149, 150, 136, 172, 58, 132, 93,
+            377, 400, 378, 379, 365, 397, 288, 361, 323]
+    chin_pts = np.array([verts_3d[i] for i in CHIN if i < len(verts_3d)])
+    center = chin_pts.mean(axis=0)
+    width = np.ptp(chin_pts[:, 0])
+
+    # Shoulder parameters — wide, thin, positioned below the neck bottom
+    neck_depth = 2.8
+    neck_top_y = center[1] - 1.1
+    shoulder_y = neck_top_y - neck_depth - width * 0.15
+    sw = width * 0.55      # just slightly wider than neck, subtle
+    sh = width * 0.15      # thin slab
+    sd = width * 0.25      # shoulder depth
+    cx, cz = center[0], center[2] - 0.2
+
+    # Simple rounded rectangular slab
+    n_seg = 16
+    verts = []
+    faces = []
+    for yi, y in enumerate([shoulder_y, shoulder_y - sh]):
+        ring_start = len(verts)
+        for s in range(n_seg):
+            a = 2 * math.pi * s / n_seg
+            x = cx + sw * math.cos(a)
+            z = cz + sd * math.sin(a)
+            verts.append((x, y, z))
+
+    # Side faces between top and bottom rings
+    for s in range(n_seg):
+        sn = (s + 1) % n_seg
+        faces.append([s, sn, n_seg + sn, n_seg + s])
+    # Top cap
+    top_center = len(verts)
+    verts.append((cx, shoulder_y, cz))
+    for s in range(n_seg):
+        sn = (s + 1) % n_seg
+        faces.append([s, sn, top_center])
+    # Bottom cap
+    bot_center = len(verts)
+    verts.append((cx, shoulder_y - sh, cz))
+    for s in range(n_seg):
+        sn = (s + 1) % n_seg
+        faces.append([n_seg + sn, n_seg + s, bot_center])
+
+    mesh = bpy.data.meshes.new("ShouldersMesh")
+    mesh.from_pydata(verts, [], faces)
+    mesh.validate()
+    obj = bpy.data.objects.new("Shoulders", mesh)
+    bpy.context.collection.objects.link(obj)
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    bpy.ops.object.shade_smooth()
+    mat = make_material("Shoulders", base_color=(*skin_color, 1.0),
+                        roughness=0.65, metallic=0.0)
+    obj.data.materials.append(mat)
+    return obj
 
 
 def place_eyeballs(verts_3d, mp_pts_raw=None):
@@ -1154,6 +1214,7 @@ def main():
     add_hair_cap(verts_3d)
     add_ears(verts_3d, skin_color)
     add_neck(verts_3d, skin_color)
+    add_shoulders(verts_3d, skin_color)
 
     print("[8/8] Exporting GLB...")
     export_glb(OUT_GLB)
