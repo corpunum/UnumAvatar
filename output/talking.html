@@ -119,19 +119,14 @@ controls.enableDamping = true;
 }
 
 // Lighting — three-point studio setup
-scene.add(new THREE.AmbientLight(0x404060, 1.8));
-const keyLight = new THREE.DirectionalLight(0xfff0e8, 2.5);  // warm key
-keyLight.position.set(20, 25, 60);
+// Lighting: hemisphere for ambient + key + rim on generated geometry
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445066, 1.2));
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
+keyLight.position.set(20, 25, 100);
 scene.add(keyLight);
-const fillLight = new THREE.DirectionalLight(0x6090cc, 0.4);  // cool fill (reduced to avoid tinting transparent materials)
-fillLight.position.set(-40, 5, 40);
-scene.add(fillLight);
-const rimLight = new THREE.DirectionalLight(0xffffff, 0.8);   // rim/back
-rimLight.position.set(0, 30, -50);
+const rimLight = new THREE.DirectionalLight(0x88aaff, 0.45);
+rimLight.position.set(-25, 10, -30);
 scene.add(rimLight);
-const underLight = new THREE.DirectionalLight(0x203050, 0.4); // subtle bounce
-underLight.position.set(0, -30, 20);
-scene.add(underLight);
 
 let headMesh = null;
 let morphNames = [];
@@ -155,7 +150,6 @@ loader.load('unum_avatar_v6.glb?' + Date.now(), (gltf) => {
             transparent: true,
             side: THREE.DoubleSide,
             depthWrite: false,
-
           });
         }
       }
@@ -186,53 +180,82 @@ loader.load('unum_avatar_v6.glb?' + Date.now(), (gltf) => {
   // Apply unlit materials to skin/hair meshes so they match face quality
   gltf.scene.traverse(child => {
     if (child.isMesh && child.name) {
-      // Cranium and ears: skin tone sampled from the face-texture perimeter
-      // (forehead/temples avg #C37D5D) to minimize the seam against the photo face
-      if (child.name.startsWith('Cranium') || child.name.startsWith('Ear')) {
-        child.material = new THREE.MeshBasicMaterial({
+      // Cranium: face-texture perimeter tone, lit so it has depth
+      if (child.name.startsWith('Cranium')) {
+        child.material = new THREE.MeshStandardMaterial({
           color: new THREE.Color().setStyle('#C37D5D'),
+          roughness: 0.75,
+          metalness: 0.0,
           side: THREE.FrontSide
         });
         child.renderOrder = 1;
       }
-      // Neck + Shoulders: unlit skin, renders behind face
-      if (child.name.startsWith('Neck') || child.name.startsWith('Shoulder')) {
-        child.material = new THREE.MeshBasicMaterial({
-          color: new THREE.Color().setStyle('#A65645'),
+      // Ears: slightly darker, lit for depth
+      if (child.name.startsWith('Ear')) {
+        child.material = new THREE.MeshStandardMaterial({
+          color: new THREE.Color().setStyle('#A86A50'),
+          roughness: 0.75,
+          metalness: 0.0,
+          side: THREE.FrontSide
+        });
+        child.renderOrder = 1;
+      }
+      // Neck: desaturated skin, lit for depth
+      if (child.name.startsWith('Neck')) {
+        child.material = new THREE.MeshStandardMaterial({
+          color: new THREE.Color().setStyle('#8E4A3B'),
+          roughness: 0.70,
+          metalness: 0.0,
           side: THREE.FrontSide
         });
         child.renderOrder = 0;
       }
+      // Shoulders: dark clothing, lit for subtle depth
+      if (child.name.startsWith('Shoulder')) {
+        child.material = new THREE.MeshStandardMaterial({
+          color: new THREE.Color().setStyle('#2D2A30'),
+          roughness: 0.85,
+          metalness: 0.0,
+          side: THREE.FrontSide
+        });
+        child.renderOrder = -1;
+      }
       // Hair cap: renders after cranium, ignores depth so it paints over it;
       // face (renderOrder=10) then paints over hair in the face region.
       if (child.name.startsWith('HairCap')) {
-        child.material = new THREE.MeshBasicMaterial({
+        child.material = new THREE.MeshStandardMaterial({
           color: new THREE.Color().setStyle('#29241F'),
+          roughness: 0.85,
+          metalness: 0.0,
           side: THREE.DoubleSide,
           depthTest: false,
           depthWrite: false,
         });
         child.renderOrder = 3;
       }
-      // MouthCavity: render after cranium, ignore depth so it shows over skin
+      // MouthCavity: hidden at rest, visible when mouth opens past threshold
       if (child.name === 'MouthCavity') {
         child.material = new THREE.MeshBasicMaterial({
           color: new THREE.Color().setStyle('#1A0804'),
           side: THREE.DoubleSide,
-          depthTest: false,
-          depthWrite: false,
+          depthTest: true,
+          depthWrite: true,
         });
         child.renderOrder = 5;
+        child.visible = false;
+        window.__mouthCavity = child;
       }
-      // Teeth: show when jaw opens (white)
+      // Teeth: visible when mouth opens enough
       if (child.name === 'Teeth') {
         child.material = new THREE.MeshBasicMaterial({
           color: new THREE.Color().setStyle('#EBE8D8'),
           side: THREE.DoubleSide,
-          depthTest: false,
-          depthWrite: false,
+          depthTest: true,
+          depthWrite: true,
         });
         child.renderOrder = 6;
+        child.visible = false;
+        window.__teeth = child;
       }
     }
   });
@@ -370,27 +393,61 @@ function updateLipSync(time) {
   setMorph('mouthPucker', rawPucker);
   setMorph('mouthSmileLeft',  frame.mouthSmileLeft  || 0);
   setMorph('mouthSmileRight', frame.mouthSmileRight || 0);
+
+  // Mouth cavity and teeth visibility thresholds
+  const openAmount = Math.max(
+    Math.min(Math.pow(rawJaw, 0.8) * 2.4, 1.0),
+    Math.min(Math.pow(rawOpen, 0.8) * 2.0, 1.0)
+  );
+  if (window.__mouthCavity) window.__mouthCavity.visible = openAmount > 0.08;
+  if (window.__teeth) window.__teeth.visible = openAmount > 0.16;
 }
 
 // Subtle head micro-motion — slow sway so the head isn't perfectly still
 function applyHeadSway(t) {
   const root = window.__modelRoot;
   if (!root) return;
-  root.rotation.y = Math.sin(t * 0.4) * 0.015 + Math.sin(t * 0.9) * 0.008;
-  root.rotation.z = Math.sin(t * 0.3 + 0.5) * 0.008;
+  const deg = THREE.MathUtils.degToRad;
+  root.rotation.y = Math.sin(t * 0.7) * deg(0.7);            // yaw
+  root.rotation.z = Math.sin(t * 0.43 + 1.2) * deg(0.35);    // roll
+  root.rotation.x = Math.sin(t * 0.55 + 0.6) * deg(0.25);    // pitch
 }
 
-// Subtle gaze drift — slow sinusoidal micro-saccades on eye patch quads
+// Iris micro-saccades: smooth target-based gaze drift with occasional retargets.
+// Keeps photo eyelids/sclera in place; only shifts the whole eye patch by tiny amounts.
+const gazeState = {
+  x: 0, y: 0,
+  targetX: 0, targetY: 0,
+  nextRetarget: 0.8,
+  maxX: 0.06, maxY: 0.04,
+  asymL: 0, asymR: 0  // tiny per-eye asymmetry
+};
+
 function applyGazeDrift(t) {
   const eL = window.__eyeL, eR = window.__eyeR;
   if (!eL || !eR) return;
-  // Two independent slow sine waves for X (horizontal) and Y (vertical)
-  const dx = Math.sin(t * 0.7) * 0.08 + Math.sin(t * 1.3) * 0.04;
-  const dy = Math.sin(t * 0.5 + 1.0) * 0.05;
-  eL.position.x = eL.userData.restPos.x + dx;
-  eL.position.y = eL.userData.restPos.y + dy;
-  eR.position.x = eR.userData.restPos.x + dx;
-  eR.position.y = eR.userData.restPos.y + dy;
+
+  // Retarget every 0.4–1.4 seconds (deterministic from t for recording)
+  if (t >= gazeState.nextRetarget) {
+    const seed = Math.sin(t * 127.1) * 43758.5453;
+    const r1 = (seed - Math.floor(seed));
+    const r2 = (Math.sin(t * 269.5) * 43758.5453);
+    const r2f = r2 - Math.floor(r2);
+    gazeState.targetX = (r1 * 2 - 1) * gazeState.maxX;
+    gazeState.targetY = (r2f * 2 - 1) * gazeState.maxY;
+    gazeState.asymL = (Math.sin(t * 17.3) * 0.01);
+    gazeState.asymR = (Math.sin(t * 23.7) * 0.01);
+    gazeState.nextRetarget = t + 0.4 + r1 * 1.0;
+  }
+
+  // Smooth interpolation toward target
+  gazeState.x += (gazeState.targetX - gazeState.x) * 0.08;
+  gazeState.y += (gazeState.targetY - gazeState.y) * 0.08;
+
+  eL.position.x = eL.userData.restPos.x + gazeState.x + gazeState.asymL;
+  eL.position.y = eL.userData.restPos.y + gazeState.y;
+  eR.position.x = eR.userData.restPos.x + gazeState.x + gazeState.asymR;
+  eR.position.y = eR.userData.restPos.y + gazeState.y;
 }
 
 // Add subtle idle animation (breathing, micro eye movements)

@@ -674,52 +674,55 @@ def add_ears(verts_3d, skin_color):
     EAR_L = [234, 127, 93, 132, 58, 172]   # left ear area
     EAR_R = [454, 356, 323, 361, 288, 397]  # right ear area
 
+    face_w = np.linalg.norm(verts_3d[234] - verts_3d[454])
+    head_h = np.linalg.norm(verts_3d[10] - verts_3d[152])
+
     def make_ear(pts, side):
         center = pts.mean(axis=0)
-        # Ear is roughly oval, extending outward (±X) from face boundary
-        ear_w = 0.7
-        ear_h = 1.4
-        ear_d = 0.3
-        sign = -1.0 if side == 'L' else 1.0  # L ear extends left (-X), R extends right (+X)
+        # Scaled ~2.5x from original: top near brow, bottom near lip
+        ear_w = face_w * 0.12
+        ear_h = head_h * 0.38
+        ear_d = face_w * 0.06
+        sign = -1.0 if side == 'L' else 1.0
 
-        n = 12
+        # Shift ear center: up toward mid-eye, back behind jaw plane
+        ear_cx = center[0] + sign * ear_w * 0.3
+        ear_cy = center[1] + head_h * 0.12  # raise toward brow area
+        ear_cz = center[2] - head_h * 0.06  # push behind jaw
+
+        n = 16
         verts = []
         faces = []
-        # Front oval ring
-        front_ring = []
+        # Outer rim ring
+        outer = []
         for i in range(n):
             ang = 2 * math.pi * i / n
-            x = center[0] + sign * (ear_w * 0.5 + ear_w * 0.5 * abs(math.cos(ang)))
-            y = center[1] + ear_h * 0.5 * math.sin(ang)
-            z = center[2] + 0.1
-            front_ring.append((x, y, z))
-        # Back oval ring (offset inward)
-        back_ring = []
+            x = ear_cx + sign * (ear_w * 0.5 + ear_w * 0.5 * abs(math.cos(ang)))
+            y = ear_cy + ear_h * 0.5 * math.sin(ang)
+            z = ear_cz + ear_d * 0.15
+            outer.append((x, y, z))
+        # Inner depression ring (smaller, recessed)
+        inner = []
         for i in range(n):
             ang = 2 * math.pi * i / n
-            x = center[0] + sign * (ear_w * 0.3 + ear_w * 0.3 * abs(math.cos(ang)))
-            y = center[1] + ear_h * 0.4 * math.sin(ang)
-            z = center[2] - ear_d
-            back_ring.append((x, y, z))
-        front_center = (center[0] + sign * ear_w * 0.5, center[1], center[2] + 0.1)
-        back_center  = (center[0] + sign * ear_w * 0.3, center[1], center[2] - ear_d)
-        fi = len(front_ring)
-        bi = fi + len(back_ring)
-        fci = bi
-        bci = fci + 1
-        all_v = front_ring + back_ring + [front_center, back_center]
-        # Front cap
+            x = ear_cx + sign * (ear_w * 0.25 + ear_w * 0.25 * abs(math.cos(ang)))
+            y = ear_cy + ear_h * 0.32 * math.sin(ang)
+            z = ear_cz - ear_d * 0.4
+            inner.append((x, y, z))
+        # Back bowl center
+        back_c = (ear_cx + sign * ear_w * 0.2, ear_cy, ear_cz - ear_d * 0.7)
+
+        all_v = outer + inner + [back_c]
+        oi, ii, bci = 0, n, 2 * n
+
+        # Outer-to-inner face band
         for i in range(n):
             j = (i + 1) % n
-            faces.append([i, j, fci])
-        # Back cap
+            faces.append([oi + i, oi + j, ii + j, ii + i])
+        # Inner ring to back center (bowl)
         for i in range(n):
             j = (i + 1) % n
-            faces.append([fi + j, fi + i, bci])
-        # Side walls
-        for i in range(n):
-            j = (i + 1) % n
-            faces.append([i, j, fi + j, fi + i])
+            faces.append([ii + j, ii + i, bci])
         return all_v, faces
 
     for side, lms in [('L', EAR_L), ('R', EAR_R)]:
@@ -735,8 +738,9 @@ def add_ears(verts_3d, skin_color):
         bpy.context.view_layer.objects.active = obj
         obj.select_set(True)
         bpy.ops.object.shade_smooth()
-        mat = make_material(f"Ear{side}", base_color=(*skin_color, 1.0),
-                            roughness=0.65, metallic=0.0)
+        ear_col = tuple(c * 0.85 for c in skin_color)
+        mat = make_material(f"Ear{side}", base_color=(*ear_col, 1.0),
+                            roughness=0.70, metallic=0.0)
         obj.data.materials.append(mat)
 
 
@@ -911,57 +915,56 @@ def add_cranium(verts_3d, skin_color):
 
 
 def add_neck(verts_3d, skin_color):
-    """Simple neck cylinder from chin down."""
-    # Symmetric jawline set (left + center + right) so the mean X stays centered.
-    CHIN = [152,                       # center chin
-            148, 176, 149, 150, 136, 172, 58, 132, 93,   # left jaw
-            377, 400, 378, 379, 365, 397, 288, 361, 323]  # right jaw
-    chin_pts = np.array([verts_3d[i] for i in CHIN if i < len(verts_3d)])
-    center = chin_pts.mean(axis=0)
-    width = np.ptp(chin_pts[:, 0])
-    r_top = width * 0.22     # narrower top tucks behind jaw, less prominent
-    r_bot = width * 0.30     # subtle shoulder flare
-    depth = 2.8              # shorter to reduce visual weight
-    top_y = center[1] - 1.1  # raised so the jaw covers the top overlap
-    cz = center[2] - 0.2     # near face plane so it connects with no gap
+    """Landmark-relative neck: proportioned to face_w and head_h."""
+    face_w = np.linalg.norm(verts_3d[234] - verts_3d[454])
+    head_h = np.linalg.norm(verts_3d[10] - verts_3d[152])
+    chin = verts_3d[152]
+    face_z = chin[2]
 
-    # Build a custom tapered neck: ring-interpolated from top (r_top) to bottom
-    # (r_bot), then a rounded hemispherical bottom cap so the lower edge isn't a
-    # hard flat n-gon when the canvas shows below the chin. Axis runs down -Y.
-    n_seg = 24       # radial segments
-    n_rings = 6      # vertical rings along the trunk
-    n_cap = 4        # rings of the rounded bottom dome
+    r_top = face_w * 0.14
+    r_mid = face_w * 0.17
+    r_bot = face_w * 0.21
+    neck_h = head_h * 0.26
+    top_y = chin[1] - head_h * 0.02
+    cz = face_z - head_h * 0.08
+    cx = (verts_3d[234][0] + verts_3d[454][0]) / 2.0
+
+    n_seg = 24
+    n_rings = 8
     verts = []
     ring_idx = []
     for ri in range(n_rings + 1):
         t = ri / n_rings
-        y = top_y - t * depth
-        r = r_top * (1 - t) + r_bot * t
+        y = top_y - t * neck_h
+        if t < 0.5:
+            r = r_top + (r_mid - r_top) * (t / 0.5)
+        else:
+            r = r_mid + (r_bot - r_mid) * ((t - 0.5) / 0.5)
         start = len(verts)
         for s in range(n_seg):
             a = 2 * math.pi * s / n_seg
-            verts.append((center[0] + r * math.cos(a), y, cz + r * math.sin(a)))
+            verts.append((cx + r * math.cos(a), y, cz + r * math.sin(a)))
         ring_idx.append((start, r, y))
 
-    # Rounded bottom dome: shrink radius along a quarter sine, drop y by a small bulge
-    bot_start, bot_r, bot_y = ring_idx[-1]
-    dome_depth = r_bot * 0.8
+    # Rounded bottom dome
+    bot_r = ring_idx[-1][1]
+    bot_y = ring_idx[-1][2]
+    dome_d = bot_r * 0.6
+    n_cap = 3
     for ci in range(1, n_cap + 1):
-        u = ci / n_cap            # 0→1
+        u = ci / n_cap
         r = bot_r * math.cos(u * math.pi / 2)
-        y = bot_y - dome_depth * math.sin(u * math.pi / 2)
+        y = bot_y - dome_d * math.sin(u * math.pi / 2)
         start = len(verts)
         for s in range(n_seg):
             a = 2 * math.pi * s / n_seg
-            verts.append((center[0] + r * math.cos(a), y, cz + r * math.sin(a)))
+            verts.append((cx + r * math.cos(a), y, cz + r * math.sin(a)))
         ring_idx.append((start, r, y))
-    # Pole at the very bottom
     pole_idx = len(verts)
-    verts.append((center[0], bot_y - dome_depth, cz))
+    verts.append((cx, bot_y - dome_d, cz))
 
     faces = []
-    total_rings = len(ring_idx)
-    for ri in range(total_rings - 1):
+    for ri in range(len(ring_idx) - 1):
         a0 = ring_idx[ri][0]
         a1 = ring_idx[ri + 1][0]
         for s in range(n_seg):
@@ -972,6 +975,8 @@ def add_neck(verts_3d, skin_color):
         sn = (s + 1) % n_seg
         faces.append([last_start + s, last_start + sn, pole_idx])
 
+    # Desaturate skin color slightly for neck
+    nc = tuple(c * 0.88 for c in skin_color)
     mesh = bpy.data.meshes.new("NeckMesh")
     mesh.from_pydata(verts, [], faces)
     mesh.validate()
@@ -980,58 +985,65 @@ def add_neck(verts_3d, skin_color):
     bpy.context.view_layer.objects.active = neck
     neck.select_set(True)
     bpy.ops.object.shade_smooth()
-
-    mat = make_material("Neck", base_color=(*skin_color, 1.0),
-                        roughness=0.65, metallic=0.0)
+    mat = make_material("Neck", base_color=(*nc, 1.0), roughness=0.70, metallic=0.0)
     neck.data.materials.append(mat)
     return neck
 
 
 def add_shoulders(verts_3d, skin_color):
-    """Flat trapezoidal shoulder silhouette below the neck to ground the head."""
-    CHIN = [152, 148, 176, 149, 150, 136, 172, 58, 132, 93,
-            377, 400, 378, 379, 365, 397, 288, 361, 323]
-    chin_pts = np.array([verts_3d[i] for i in CHIN if i < len(verts_3d)])
-    center = chin_pts.mean(axis=0)
-    width = np.ptp(chin_pts[:, 0])
+    """Dark-clothing shoulder/bust silhouette, wider than head, grounding the neck."""
+    face_w = np.linalg.norm(verts_3d[234] - verts_3d[454])
+    head_h = np.linalg.norm(verts_3d[10] - verts_3d[152])
+    chin = verts_3d[152]
+    cx = (verts_3d[234][0] + verts_3d[454][0]) / 2.0
+    face_z = chin[2]
 
-    # Shoulder parameters — wide, thin, positioned below the neck bottom
-    neck_depth = 2.8
-    neck_top_y = center[1] - 1.1
-    shoulder_y = neck_top_y - neck_depth - width * 0.15
-    sw = width * 0.55      # just slightly wider than neck, subtle
-    sh = width * 0.15      # thin slab
-    sd = width * 0.25      # shoulder depth
-    cx, cz = center[0], center[2] - 0.2
+    neck_h = head_h * 0.26
+    neck_bot_y = chin[1] - head_h * 0.02 - neck_h
 
-    # Simple rounded rectangular slab
-    n_seg = 16
+    sw = face_w * 1.1       # shoulder half-width (wider than head)
+    sh = head_h * 0.42      # shoulder height
+    sd = face_w * 0.45      # shoulder depth
+    top_y = neck_bot_y - head_h * 0.04
+    cz = face_z - head_h * 0.04
+
+    # Rounded trapezoid: top ring narrower, bottom ring wider, with rounded caps
+    n_seg = 20
+    n_rings = 6
     verts = []
-    faces = []
-    for yi, y in enumerate([shoulder_y, shoulder_y - sh]):
-        ring_start = len(verts)
+    ring_idx = []
+    for ri in range(n_rings + 1):
+        t = ri / n_rings
+        y = top_y - t * sh
+        # Top narrower (0.7x), bottom full width — trapezoid silhouette
+        w = sw * (0.7 + 0.3 * t)
+        d = sd * (0.8 + 0.2 * t)
+        start = len(verts)
         for s in range(n_seg):
             a = 2 * math.pi * s / n_seg
-            x = cx + sw * math.cos(a)
-            z = cz + sd * math.sin(a)
-            verts.append((x, y, z))
+            verts.append((cx + w * math.cos(a), y, cz + d * math.sin(a)))
+        ring_idx.append(start)
 
-    # Side faces between top and bottom rings
-    for s in range(n_seg):
-        sn = (s + 1) % n_seg
-        faces.append([s, sn, n_seg + sn, n_seg + s])
+    faces = []
+    for ri in range(n_rings):
+        a0 = ring_idx[ri]
+        a1 = ring_idx[ri + 1]
+        for s in range(n_seg):
+            sn = (s + 1) % n_seg
+            faces.append([a0 + s, a0 + sn, a1 + sn, a1 + s])
     # Top cap
-    top_center = len(verts)
-    verts.append((cx, shoulder_y, cz))
+    tc = len(verts)
+    verts.append((cx, top_y, cz))
     for s in range(n_seg):
         sn = (s + 1) % n_seg
-        faces.append([s, sn, top_center])
+        faces.append([ring_idx[0] + s, ring_idx[0] + sn, tc])
     # Bottom cap
-    bot_center = len(verts)
-    verts.append((cx, shoulder_y - sh, cz))
+    bc = len(verts)
+    verts.append((cx, top_y - sh, cz))
+    last = ring_idx[-1]
     for s in range(n_seg):
         sn = (s + 1) % n_seg
-        faces.append([n_seg + sn, n_seg + s, bot_center])
+        faces.append([last + sn, last + s, bc])
 
     mesh = bpy.data.meshes.new("ShouldersMesh")
     mesh.from_pydata(verts, [], faces)
@@ -1041,8 +1053,10 @@ def add_shoulders(verts_3d, skin_color):
     bpy.context.view_layer.objects.active = obj
     obj.select_set(True)
     bpy.ops.object.shade_smooth()
-    mat = make_material("Shoulders", base_color=(*skin_color, 1.0),
-                        roughness=0.65, metallic=0.0)
+    # Dark desaturated clothing, not pure black
+    clothing = (0.12, 0.11, 0.13)
+    mat = make_material("Shoulders", base_color=(*clothing, 1.0),
+                        roughness=0.85, metallic=0.0)
     obj.data.materials.append(mat)
     return obj
 
