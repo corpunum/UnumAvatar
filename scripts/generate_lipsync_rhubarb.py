@@ -24,21 +24,24 @@ WAV_OUT     = OUTPUT / "speech.wav"
 RHUBARB_OUT = OUTPUT / "speech_rhubarb.json"
 LIPSYNC_OUT = OUTPUT / "speech_lipsync.json"
 
-# ── Rhubarb mouth cue → blendshape weights ────────────────────────────────
-# Based on Preston Blair phoneme groups
-RHUBARB_MAP = {
-    "A": {"mouthClose": 0.9, "jawOpen": 0.0,  "mouthOpen": 0.0},
-    "B": {"mouthPucker": 0.75, "mouthFunnel": 0.35, "jawOpen": 0.05},
-    "C": {"mouthOpen": 0.35, "jawOpen": 0.15},
-    "D": {"mouthOpen": 0.50, "jawOpen": 0.25},
-    "E": {"mouthOpen": 0.75, "jawOpen": 0.45},
-    "F": {"mouthPucker": 0.40, "mouthFunnel": 0.75, "jawOpen": 0.05},
-    "G": {"mouthSmileLeft": 0.30, "mouthSmileRight": 0.30, "mouthOpen": 0.25, "jawOpen": 0.10},
-    "H": {"mouthOpen": 0.40, "jawOpen": 0.12},
-    "X": {"mouthClose": 0.65, "jawOpen": 0.0},
+# ── Rhubarb mouth cue → viseme + blendshape weights ───────────────────────
+# Rhubarb cues (A..H,X) are first mapped to an Oculus-style viseme layer.
+RHUBARB_VISEME_MAP = {
+    "A": {"viseme_sil": 1.0, "viseme_PP": 0.45},                            # closed/rest
+    "B": {"viseme_PP": 1.0},                                                # M/B/P
+    "C": {"viseme_E": 0.55, "viseme_I": 0.35, "viseme_DD": 0.25},          # EH/AE-ish
+    "D": {"viseme_aa": 0.75, "viseme_DD": 0.35, "viseme_nn": 0.20},        # AA
+    "E": {"viseme_aa": 1.0, "viseme_E": 0.35},                              # wide open
+    "F": {"viseme_O": 0.85, "viseme_U": 0.55, "viseme_FF": 0.50},          # O/U/WQ
+    "G": {"viseme_FF": 1.0, "viseme_SS": 0.35, "viseme_CH": 0.20},         # FV
+    "H": {"viseme_DD": 0.75, "viseme_nn": 0.40, "viseme_TH": 0.20},        # L / tongue-forward
+    "X": {"viseme_sil": 1.0},
 }
 
 ALL_SHAPES = [
+    "viseme_sil", "viseme_PP", "viseme_FF", "viseme_TH", "viseme_DD",
+    "viseme_kk", "viseme_CH", "viseme_SS", "viseme_nn", "viseme_RR",
+    "viseme_aa", "viseme_E", "viseme_I", "viseme_O", "viseme_U",
     "jawOpen", "mouthClose", "mouthFunnel", "mouthPucker",
     "mouthSmileLeft", "mouthSmileRight", "mouthOpen",
     "eyeBlinkLeft", "eyeBlinkRight",
@@ -58,8 +61,11 @@ def text_to_wav(text: str) -> bool:
     cmd = [
         str(PIPER), "--model", str(VOICE_MODEL),
         "--output_file", str(WAV_OUT),
-        "--sentence_silence", "0.3",
-        "--length_scale", "1.05",
+        "--sentence_silence", "0.18",
+        "--length_scale", "0.93",
+        "--noise_scale", "0.52",
+        "--noise_w_scale", "0.62",
+        "--volume", "1.12",
     ]
     result = subprocess.run(cmd, input=text.encode(), capture_output=True)
     if result.returncode != 0:
@@ -107,12 +113,49 @@ def rhubarb_to_blendshapes() -> dict:
 
     for cue in cues:
         key = cue["value"]
-        weights = RHUBARB_MAP.get(key, {})
+        visemes = RHUBARB_VISEME_MAP.get(key, {"viseme_sil": 1.0})
         start_f = int(cue["start"] * FPS)
         end_f   = min(int(cue["end"] * FPS), n_frames - 1)
-        for shape, w in weights.items():
+        for shape, w in visemes.items():
             if shape in raw:
                 raw[shape][start_f:end_f+1] = w
+
+    # Convert visemes into the currently available runtime blendshape controls.
+    # This keeps compatibility with the existing GLB while giving better
+    # phoneme separation and stronger closed/open dominance behavior.
+    for fi in range(n_frames):
+        vis = {k: raw[k][fi] for k in ALL_SHAPES if k.startswith("viseme_")}
+        pp = vis.get("viseme_PP", 0.0)
+        sil = vis.get("viseme_sil", 0.0)
+        aa = vis.get("viseme_aa", 0.0)
+        ee = max(vis.get("viseme_E", 0.0), vis.get("viseme_I", 0.0))
+        oo = max(vis.get("viseme_O", 0.0), vis.get("viseme_U", 0.0))
+        ff = vis.get("viseme_FF", 0.0)
+        dd = max(vis.get("viseme_DD", 0.0), vis.get("viseme_TH", 0.0), vis.get("viseme_nn", 0.0))
+        ss = max(vis.get("viseme_SS", 0.0), vis.get("viseme_CH", 0.0), vis.get("viseme_kk", 0.0))
+
+        jaw_open = min(1.0, aa * 0.68 + ee * 0.46 + dd * 0.28)
+        mouth_open = min(1.0, aa * 0.76 + ee * 0.52 + ss * 0.26 + dd * 0.22)
+        mouth_funnel = min(1.0, oo * 0.88 + ff * 0.30)
+        mouth_pucker = min(1.0, oo * 0.56 + pp * 0.45)
+        smile = min(1.0, ss * 0.32 + ee * 0.20)
+        mouth_close = min(1.0, sil * 0.82 + pp * 0.95)
+
+        # Dominance rules: bilabials close strongly; open vowels suppress close.
+        if pp > 0.58:
+            jaw_open *= 0.25
+            mouth_open *= 0.18
+            mouth_close = max(mouth_close, 0.88)
+        if max(aa, ee) > 0.45:
+            mouth_close *= 0.18
+
+        raw["jawOpen"][fi] = jaw_open
+        raw["mouthOpen"][fi] = mouth_open
+        raw["mouthFunnel"][fi] = mouth_funnel
+        raw["mouthPucker"][fi] = mouth_pucker
+        raw["mouthSmileLeft"][fi] = smile
+        raw["mouthSmileRight"][fi] = smile
+        raw["mouthClose"][fi] = mouth_close
 
     # Temporal smoothing: attack + release
     attack_frames  = max(1, int(ATTACK_MS  / 1000 * FPS))

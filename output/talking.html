@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Unum Avatar - Talking Demo</title>
 <style>
-  body { margin: 0; background: #080c14; overflow: hidden; font-family: sans-serif; }
+  body { margin: 0; background: #080706; overflow: hidden; font-family: sans-serif; }
   #vignette {
     position: fixed; inset: 0; pointer-events: none; z-index: 5;
     background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.65) 100%);
@@ -68,12 +68,21 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffe
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.setClearColor(new THREE.Color(0x0d0d1a), 1);
+renderer.setClearColor(new THREE.Color(0x0c0b0a), 1);
 document.body.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 8, 0);
 controls.enableDamping = true;
+controls.enablePan = false;
+controls.minDistance = 78;
+controls.maxDistance = 110;
+// The current V6 asset is front-optimized; clamp interaction to a realistic
+// conversational arc until side/topology upgrade lands in V2 rig work.
+controls.minAzimuthAngle = -0.30;
+controls.maxAzimuthAngle = 0.30;
+controls.minPolarAngle = 1.38;
+controls.maxPolarAngle = 1.78;
 
 // Studio backdrop — subtle radial gradient behind head
 // Studio backdrop — radial gradient
@@ -82,9 +91,9 @@ controls.enableDamping = true;
   bgCanvas.width = 512; bgCanvas.height = 512;
   const bgCtx = bgCanvas.getContext('2d');
   const grad = bgCtx.createRadialGradient(256, 256, 0, 256, 256, 256);
-  grad.addColorStop(0,   '#1e2546');
-  grad.addColorStop(0.5, '#111828');
-  grad.addColorStop(1,   '#080c14');
+  grad.addColorStop(0,   '#292622');
+  grad.addColorStop(0.5, '#171512');
+  grad.addColorStop(1,   '#080706');
   bgCtx.fillStyle = grad;
   bgCtx.fillRect(0, 0, 512, 512);
   const bgTex = new THREE.CanvasTexture(bgCanvas);
@@ -103,9 +112,9 @@ controls.enableDamping = true;
   haloCanvas.width = 256; haloCanvas.height = 320;
   const hCtx = haloCanvas.getContext('2d');
   const hGrad = hCtx.createRadialGradient(128, 160, 20, 128, 150, 128);
-  hGrad.addColorStop(0,    'rgba(8,12,22,0.88)');   // dark blue-tinted, matches background
-  hGrad.addColorStop(0.55, 'rgba(10,14,26,0.72)');
-  hGrad.addColorStop(1,    'rgba(10,14,26,0)');
+  hGrad.addColorStop(0,    'rgba(8,7,6,0.88)');
+  hGrad.addColorStop(0.55, 'rgba(10,9,8,0.72)');
+  hGrad.addColorStop(1,    'rgba(10,9,8,0)');
   hCtx.fillStyle = hGrad;
   hCtx.fillRect(0, 0, 256, 320);
   const haloTex = new THREE.CanvasTexture(haloCanvas);
@@ -120,13 +129,63 @@ controls.enableDamping = true;
 
 // Lighting — three-point studio setup
 // Lighting: hemisphere for ambient + key + rim on generated geometry
-scene.add(new THREE.HemisphereLight(0xffffff, 0x445066, 1.2));
+scene.add(new THREE.HemisphereLight(0xffffff, 0x4c4338, 1.2));
 const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
 keyLight.position.set(20, 25, 100);
 scene.add(keyLight);
-const rimLight = new THREE.DirectionalLight(0x88aaff, 0.45);
+const rimLight = new THREE.DirectionalLight(0xd8c0a0, 0.35);
 rimLight.position.set(-25, 10, -30);
 scene.add(rimLight);
+
+function makeSoftMouthApertureTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 192;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.save();
+  ctx.translate(canvas.width * 0.5, canvas.height * 0.52);
+  ctx.scale(1.0, 0.42);
+  const grad = ctx.createRadialGradient(0, 0, 12, 0, 0, canvas.width * 0.46);
+  grad.addColorStop(0.00, 'rgba(18, 3, 3, 0.92)');
+  grad.addColorStop(0.46, 'rgba(34, 7, 6, 0.86)');
+  grad.addColorStop(0.78, 'rgba(72, 22, 17, 0.42)');
+  grad.addColorStop(1.00, 'rgba(98, 38, 30, 0.00)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(0, 0, canvas.width * 0.46, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(canvas.width * 0.5, canvas.height * 0.46);
+  ctx.scale(1.0, 0.16);
+  const lineGrad = ctx.createRadialGradient(0, 0, 8, 0, 0, canvas.width * 0.42);
+  lineGrad.addColorStop(0.00, 'rgba(11, 1, 1, 0.52)');
+  lineGrad.addColorStop(0.68, 'rgba(17, 2, 2, 0.34)');
+  lineGrad.addColorStop(1.00, 'rgba(17, 2, 2, 0.00)');
+  ctx.fillStyle = lineGrad;
+  ctx.beginPath();
+  ctx.arc(0, 0, canvas.width * 0.42, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function makeOrganicMouthApertureShape(w, h) {
+  const shape = new THREE.Shape();
+  shape.moveTo(-w * 0.50, 0);
+  shape.bezierCurveTo(-w * 0.46, h * 0.26, -w * 0.22, h * 0.34, 0, h * 0.31);
+  shape.bezierCurveTo(w * 0.23, h * 0.35, w * 0.45, h * 0.24, w * 0.50, 0);
+  shape.bezierCurveTo(w * 0.42, -h * 0.18, w * 0.18, -h * 0.23, 0, -h * 0.20);
+  shape.bezierCurveTo(-w * 0.20, -h * 0.24, -w * 0.42, -h * 0.18, -w * 0.50, 0);
+  return shape;
+}
 
 let headMesh = null;
 let morphNames = [];
@@ -135,6 +194,20 @@ let audioCtx = null;
 
 // Load GLB
 const loader = new GLTFLoader();
+const textureLoader = new THREE.TextureLoader();
+const RUNTIME_TEX = {
+  apertureRest: 'aperture_rest_real.png',
+  apertureO: 'aperture_o_real.png',
+  apertureOpen: 'aperture_open_real.png',
+  apertureInterior: 'aperture_interior_real.png',
+  teeth: 'teeth_real.png',
+};
+const runtimeTex = {};
+for (const [k, file] of Object.entries(RUNTIME_TEX)) {
+  const tex = textureLoader.load(file + '?' + Date.now());
+  tex.colorSpace = THREE.SRGBColorSpace;
+  runtimeTex[k] = tex;
+}
 loader.load('unum_avatar_v6.glb?' + Date.now(), (gltf) => {
   gltf.scene.traverse((child) => {
     if (child.isMesh) {
@@ -150,11 +223,11 @@ loader.load('unum_avatar_v6.glb?' + Date.now(), (gltf) => {
             transparent: true,
             side: THREE.DoubleSide,
             depthWrite: false,
+            depthTest: false,
           });
         }
       }
       if (child.name && child.name.startsWith('Eyeball')) {
-        // Photo-eye patch quad: unlit, transparent edges, renders after face
         child.renderOrder = 12;
         if (child.material && child.material.map) {
           const eyeMap = child.material.map;
@@ -164,11 +237,30 @@ loader.load('unum_avatar_v6.glb?' + Date.now(), (gltf) => {
             opacity: 1.0,
             side: THREE.DoubleSide,
             depthWrite: false,
+            depthTest: false,
           });
         }
-        // Store for gaze drift animation
         if (child.name === 'EyeballL') window.__eyeL = child;
         if (child.name === 'EyeballR') window.__eyeR = child;
+        child.userData.restPos = child.position.clone();
+      }
+      if (child.name && child.name.startsWith('Iris')) {
+        child.visible = false;
+        // Iris-only overlay: this is what receives micro-saccades.
+        child.renderOrder = 13;
+        if (child.material && child.material.map) {
+          const irisMap = child.material.map;
+          child.material = new THREE.MeshBasicMaterial({
+            map: irisMap,
+            transparent: true,
+            opacity: 0.98,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            depthTest: false,
+          });
+        }
+        if (child.name === 'IrisL') window.__irisL = child;
+        if (child.name === 'IrisR') window.__irisR = child;
         child.userData.restPos = child.position.clone();
       }
       if (child.name && child.name.startsWith('EyelidOccluder')) {
@@ -192,45 +284,33 @@ loader.load('unum_avatar_v6.glb?' + Date.now(), (gltf) => {
       }
       // Ears: slightly darker, lit for depth
       if (child.name.startsWith('Ear')) {
+        const earMap = child.material?.map || null;
         child.material = new THREE.MeshStandardMaterial({
-          color: new THREE.Color().setStyle('#A86A50'),
-          roughness: 0.75,
+          map: earMap,
+          color: earMap ? 0xffffff : new THREE.Color().setStyle('#A86A50'),
+          transparent: !!earMap,
+          alphaTest: earMap ? 0.05 : 0,
+          roughness: 0.78,
           metalness: 0.0,
-          side: THREE.FrontSide
+          side: THREE.DoubleSide
         });
         child.renderOrder = 1;
       }
-      // Neck: desaturated skin, lit for depth
-      if (child.name.startsWith('Neck')) {
-        child.material = new THREE.MeshStandardMaterial({
-          color: new THREE.Color().setStyle('#8E4A3B'),
-          roughness: 0.70,
-          metalness: 0.0,
-          side: THREE.FrontSide
-        });
-        child.renderOrder = 0;
-      }
-      // Shoulders: dark clothing, lit for subtle depth
-      if (child.name.startsWith('Shoulder')) {
-        child.material = new THREE.MeshStandardMaterial({
-          color: new THREE.Color().setStyle('#2D2A30'),
-          roughness: 0.85,
-          metalness: 0.0,
-          side: THREE.FrontSide
-        });
-        child.renderOrder = -1;
-      }
-      // Hair cap: renders after cranium, ignores depth so it paints over it;
-      // face (renderOrder=10) then paints over hair in the face region.
       // Hair cards: alpha-blended strands around the hairline
+      if (child.name && child.name.startsWith('Hair')) {
+        child.visible = false;
+      }
       if (child.name.startsWith('HairCard')) {
+        // Temporary stability guard: current card atlas can cross the face
+        // during yaw. Keep disabled until V2 hair cards are regenerated.
+        child.visible = false;
         if (child.material && child.material.map) {
           const hairMap = child.material.map;
           child.material = new THREE.MeshStandardMaterial({
             map: hairMap,
-            alphaMap: hairMap,
             transparent: true,
-            alphaTest: 0.35,
+            alphaTest: 0.38,
+            opacity: 0.42,
             depthTest: true,
             depthWrite: false,
             roughness: 0.85,
@@ -241,7 +321,7 @@ loader.load('unum_avatar_v6.glb?' + Date.now(), (gltf) => {
           child.material = new THREE.MeshStandardMaterial({
             color: new THREE.Color().setStyle('#29241F'),
             transparent: true,
-            opacity: 0.8,
+            opacity: 0.35,
             depthTest: true,
             depthWrite: false,
             roughness: 0.85,
@@ -251,17 +331,10 @@ loader.load('unum_avatar_v6.glb?' + Date.now(), (gltf) => {
         }
         child.renderOrder = 4;
       }
-      if (child.name.startsWith('HairCap')) {
-        child.material = new THREE.MeshStandardMaterial({
-          color: new THREE.Color().setStyle('#29241F'),
-          roughness: 0.85,
-          metalness: 0.0,
-          side: THREE.DoubleSide,
-          depthTest: false,
-          depthWrite: false,
-        });
-        child.renderOrder = 3;
-      }
+      if (child.name.startsWith('HairCap')) child.visible = false;
+      if (child.name.startsWith('HairBun')) child.visible = false;
+      if (child.name === 'TempleWisps') child.visible = false;
+      if (child.name === 'HairlineWisps') child.visible = false;
       // MouthCavity: hidden at rest, visible when mouth opens past threshold
       if (child.name === 'MouthCavity') {
         child.material = new THREE.MeshBasicMaterial({
@@ -274,17 +347,91 @@ loader.load('unum_avatar_v6.glb?' + Date.now(), (gltf) => {
         child.visible = false;
         window.__mouthCavity = child;
       }
+      if (child.name === 'MouthAperture') {
+        child.geometry.computeBoundingBox();
+        const apCenter = new THREE.Vector3();
+        const apSize = new THREE.Vector3();
+        child.geometry.boundingBox.getCenter(apCenter);
+        child.geometry.boundingBox.getSize(apSize);
+        const shape = makeOrganicMouthApertureShape(apSize.x * 1.04, apSize.y * 1.20);
+        const overlay = new THREE.Mesh(
+          new THREE.ShapeGeometry(shape, 36),
+          new THREE.MeshBasicMaterial({
+            map: runtimeTex.apertureRest,
+            transparent: true,
+            opacity: 0.76,
+            side: THREE.DoubleSide,
+            depthTest: false,
+            depthWrite: false,
+            alphaTest: 0.01,
+            toneMapped: false,
+          })
+        );
+        overlay.name = 'MouthApertureOverlay';
+        overlay.position.copy(child.position).add(apCenter);
+        overlay.position.z += 0.35;
+        overlay.position.y -= 0.08;
+        overlay.quaternion.copy(child.quaternion);
+        overlay.renderOrder = 11;
+        overlay.visible = true;
+        overlay.scale.set(0.84, 0.34, 1.0);
+        overlay.userData.restScale = overlay.scale.clone();
+        overlay.userData.texKey = 'apertureRest';
+        child.parent.add(overlay);
+        child.visible = false;
+        window.__mouthApertureSource = child;
+        window.__mouthAperture = overlay;
+      }
       // Teeth: visible when mouth opens enough
       if (child.name === 'Teeth') {
-        child.material = new THREE.MeshBasicMaterial({
-          color: new THREE.Color().setStyle('#EBE8D8'),
-          side: THREE.DoubleSide,
-          depthTest: true,
-          depthWrite: true,
-        });
-        child.renderOrder = 6;
+        child.geometry.computeBoundingBox();
+        const teethCenter = new THREE.Vector3();
+        child.geometry.boundingBox.getCenter(teethCenter);
+        const teethSize = new THREE.Vector3();
+        child.geometry.boundingBox.getSize(teethSize);
+        child.geometry.translate(-teethCenter.x, -teethCenter.y, -teethCenter.z);
+        child.position.copy(teethCenter);
+        child.userData.restScale = child.scale.clone();
         child.visible = false;
         window.__teeth = child;
+
+        const w = Math.max(teethSize.x * 0.62, 0.45);
+        const h = Math.max(teethSize.y * 0.14, 0.045);
+        const shape = new THREE.Shape();
+        shape.moveTo(-w * 0.48, 0);
+        shape.quadraticCurveTo(-w * 0.50, h * 0.50, -w * 0.38, h * 0.52);
+        shape.lineTo(w * 0.38, h * 0.52);
+        shape.quadraticCurveTo(w * 0.50, h * 0.50, w * 0.48, 0);
+        shape.quadraticCurveTo(w * 0.18, -h * 0.44, -w * 0.18, -h * 0.44);
+        shape.quadraticCurveTo(-w * 0.50, -h * 0.20, -w * 0.48, 0);
+        const glint = new THREE.Mesh(
+          new THREE.ShapeGeometry(shape, 24),
+          new THREE.MeshBasicMaterial({
+            map: runtimeTex.teeth,
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.0,
+            side: THREE.DoubleSide,
+            depthTest: false,
+            depthWrite: false,
+          })
+        );
+        glint.name = 'TeethGlint';
+        glint.position.set(teethCenter.x, teethCenter.y + h * 0.12, teethCenter.z + 0.08);
+        glint.renderOrder = 12;
+        glint.visible = false;
+        glint.userData.restScale = glint.scale.clone();
+        child.parent.add(glint);
+        window.__teethGlint = glint;
+
+        child.material = new THREE.MeshBasicMaterial({
+          color: new THREE.Color().setStyle('#6F5E4B'),
+          transparent: true,
+          opacity: 0.0,
+          side: THREE.DoubleSide,
+          depthTest: true,
+          depthWrite: false,
+        });
       }
     }
   });
@@ -329,11 +476,67 @@ function setMorph(name, value) {
   if (idx >= 0) headMesh.morphTargetInfluences[idx] = value;
 }
 
+function resetMouthOverlays() {
+  if (window.__mouthAperture) {
+    window.__mouthAperture.visible = false;
+    window.__mouthAperture.scale.set(0.60, 0.22, 1.0);
+    if (window.__mouthAperture.material) window.__mouthAperture.material.opacity = 0.0;
+  }
+  if (window.__teeth) {
+    window.__teeth.visible = false;
+    const base = window.__teeth.userData.restScale || { x: 1, y: 1, z: 1 };
+    window.__teeth.scale.set(base.x, base.y, base.z);
+    if (window.__teeth.material) window.__teeth.material.opacity = 0.0;
+  }
+  if (window.__teethGlint) {
+    window.__teethGlint.visible = false;
+    const base = window.__teethGlint.userData.restScale || { x: 1, y: 1, z: 1 };
+    window.__teethGlint.scale.set(base.x, base.y, base.z);
+    if (window.__teethGlint.material) window.__teethGlint.material.opacity = 0.0;
+  }
+}
+
+function applyBlinkAmount(value) {
+  const blink = THREE.MathUtils.clamp(value || 0, 0, 1);
+  const morphBlink = blink * 0.48;
+  setMorph('eyeBlinkLeft', morphBlink);
+  setMorph('eyeBlinkRight', morphBlink);
+
+  // The eyes are photo overlays. During a blink, fade those overlays so the
+  // underlying blink morph can provide the closed-lid shape instead of smearing
+  // the static open-eye texture over the moving eyelids.
+  const eyeOpacity = Math.max(0.78, 1.0 - blink * 0.22);
+  const irisOpacity = Math.max(0.55, 0.98 - blink * 0.43);
+  for (const eye of [window.__eyeL, window.__eyeR]) {
+    if (eye?.material) eye.material.opacity = eyeOpacity;
+  }
+  for (const iris of [window.__irisL, window.__irisR]) {
+    if (iris?.material) iris.material.opacity = irisOpacity;
+  }
+}
+
+function speechBlinkAmountAt(elapsed) {
+  // Deterministic blinks inside the spoken phrase. The output MP4 is clipped to
+  // the audio duration, so late idle blinks never appear in the exported video.
+  const starts = [1.18, 2.74];
+  let amount = 0;
+  for (const start of starts) {
+    const phase = (elapsed - start) / 0.22;
+    if (phase >= 0 && phase <= 1) {
+      const v = phase < 0.35 ? phase / 0.35 : 1.0 - (phase - 0.35) / 0.65;
+      amount = Math.max(amount, THREE.MathUtils.clamp(v, 0, 1));
+    }
+  }
+  return amount;
+}
+
 function resetMorphs() {
   if (!headMesh) return;
   for (let i = 0; i < morphNames.length; i++) {
     headMesh.morphTargetInfluences[i] = 0;
   }
+  applyBlinkAmount(0);
+  resetMouthOverlays();
 }
 
 let speechBlinkTimer = 0;
@@ -352,20 +555,17 @@ let speechBlinkPhase = 0;
 
 function applySpeechBlink(dt) {
   if (speechBlinkState === 0) {
-    setMorph('eyeBlinkLeft', 0);
-    setMorph('eyeBlinkRight', 0);
+    applyBlinkAmount(0);
     return;
   }
   speechBlinkPhase += dt;
   if (speechBlinkState === 1) {  // closing fast (0.07s)
     const t = Math.min(speechBlinkPhase / 0.07, 1.0);
-    setMorph('eyeBlinkLeft', t);
-    setMorph('eyeBlinkRight', t);
+    applyBlinkAmount(t);
     if (t >= 1.0) { speechBlinkState = 2; speechBlinkPhase = 0; }
   } else if (speechBlinkState === 2) {  // opening slow (0.15s)
     const t = Math.min(speechBlinkPhase / 0.15, 1.0);
-    setMorph('eyeBlinkLeft', 1.0 - t);
-    setMorph('eyeBlinkRight', 1.0 - t);
+    applyBlinkAmount(1.0 - t);
     if (t >= 1.0) { speechBlinkState = 0; speechBlinkPhase = 0; }
   }
 }
@@ -383,23 +583,34 @@ function updateLipSync(time) {
 
   // Find current frame
   const frames = lipsyncData.frames;
-  let frame = frames[0];
-  for (let i = 0; i < frames.length; i++) {
-    if (frames[i].time <= elapsed) {
-      frame = frames[i];
-    } else {
-      // Interpolate between frames with smoothstep easing
-      const prev = frames[i - 1] || frames[0];
-      const next = frames[i];
-      const t = (elapsed - prev.time) / (next.time - prev.time);
-      const st = t * t * (3 - 2 * t);  // smoothstep
-      frame = {};
-      for (const key of Object.keys(prev)) {
-        if (key === 'time') continue;
-        frame[key] = prev[key] + (next[key] - prev[key]) * st;
+  const sampleFrameAt = (atTime) => {
+    let out = frames[0];
+    for (let i = 0; i < frames.length; i++) {
+      if (frames[i].time <= atTime) {
+        out = frames[i];
+      } else {
+        const prev = frames[i - 1] || frames[0];
+        const next = frames[i];
+        const dt = Math.max(1e-6, next.time - prev.time);
+        const t = THREE.MathUtils.clamp((atTime - prev.time) / dt, 0, 1);
+        const st = t * t * (3 - 2 * t);  // smoothstep
+        out = {};
+        for (const key of Object.keys(prev)) {
+          if (key === 'time') continue;
+          out[key] = prev[key] + (next[key] - prev[key]) * st;
+        }
+        break;
       }
-      break;
     }
+    return out;
+  };
+  const frameNow = sampleFrameAt(elapsed);
+  const frameFuture = sampleFrameAt(Math.min(elapsed + 0.020, lipsyncData.duration));
+  const frame = {};
+  const frameKeys = new Set([...Object.keys(frameNow), ...Object.keys(frameFuture)]);
+  for (const key of frameKeys) {
+    if (key === 'time') continue;
+    frame[key] = (frameNow[key] || 0) * 0.68 + (frameFuture[key] || 0) * 0.32;
   }
 
   // Viseme resolver: prevent mouthClose from canceling jawOpen/mouthOpen
@@ -408,28 +619,75 @@ function updateLipSync(time) {
   const rawOpen  = frame.mouthOpen  || 0;
   const rawFunnel= frame.mouthFunnel|| 0;
   const rawPucker= frame.mouthPucker|| 0;
+  const visAA = frame.viseme_aa || 0;
+  const visE = Math.max(frame.viseme_E || 0, frame.viseme_I || 0);
+  const visO = Math.max(frame.viseme_O || 0, frame.viseme_U || 0);
+  const visPP = frame.viseme_PP || 0;
 
   // Opening signals win over closing signals
   const openSignal  = Math.max(rawJaw, rawOpen, rawFunnel * 0.5);
   const closeSignal = rawClose * Math.max(0, 1.0 - openSignal * 1.5);
 
-  // Gamma lift (exp < 1) makes mid-range speech values (~0.3-0.5) open faster,
-  // then a strong gain; clamped at 1.0. Keeps speech mouth movement legible on video.
-  setMorph('jawOpen',    Math.min(Math.pow(rawJaw, 0.8) * 2.4, 1.0));
-  setMorph('mouthOpen',  Math.min(Math.pow(rawOpen, 0.8) * 2.0, 1.0));
+  // Keep the photo-derived lip texture within a believable range. Full-strength
+  // jaw/mouth targets stretch the neutral-photo lips into vertical artifacts.
+  const jawShape = Math.min(Math.pow(rawJaw, 0.90) * 0.62, 0.30);
+  const mouthShape = Math.min(Math.pow(rawOpen, 0.90) * 0.56, 0.31);
+  setMorph('jawOpen', jawShape);
+  setMorph('mouthOpen', mouthShape);
   setMorph('mouthClose', closeSignal);
-  setMorph('mouthFunnel', rawFunnel);
-  setMorph('mouthPucker', rawPucker);
+  setMorph('mouthFunnel', rawFunnel * 0.55);
+  setMorph('mouthPucker', rawPucker * 0.50);
   setMorph('mouthSmileLeft',  frame.mouthSmileLeft  || 0);
   setMorph('mouthSmileRight', frame.mouthSmileRight || 0);
 
   // Mouth cavity and teeth visibility thresholds
   const openAmount = Math.max(
-    Math.min(Math.pow(rawJaw, 0.8) * 2.4, 1.0),
-    Math.min(Math.pow(rawOpen, 0.8) * 2.0, 1.0)
+    jawShape,
+    mouthShape
   );
-  if (window.__mouthCavity) window.__mouthCavity.visible = openAmount > 0.08;
-  if (window.__teeth) window.__teeth.visible = openAmount > 0.16;
+  if (window.__mouthCavity) window.__mouthCavity.visible = false;
+  if (window.__mouthAperture) {
+    const openDrive = Math.max(
+      openAmount,
+      rawJaw * 0.62 + rawOpen * 0.58,
+      rawFunnel * 0.42,
+      rawPucker * 0.34
+    );
+    const apertureActive = openDrive > 0.028 || rawFunnel > 0.10 || rawPucker > 0.16;
+    window.__mouthAperture.visible = apertureActive;
+    window.__mouthAperture.scale.x = apertureActive ? 0.92 + Math.min(rawFunnel * 0.30, 0.20) : 0.84;
+    window.__mouthAperture.scale.y = apertureActive ? 0.64 + openDrive * 4.70 + Math.min(rawFunnel * 0.28, 0.18) : 0.34;
+    let texKey = 'apertureRest';
+    if (apertureActive) {
+      if (visO > 0.36 || rawFunnel > 0.24 || rawPucker > 0.30) texKey = 'apertureO';
+      else if (visAA > 0.34 || visE > 0.36 || openAmount > 0.105) texKey = 'apertureOpen';
+      else texKey = 'apertureInterior';
+    } else if (visPP > 0.44 || rawClose > 0.50) {
+      texKey = 'apertureRest';
+    }
+    if (window.__mouthAperture.userData.texKey !== texKey) {
+      window.__mouthAperture.material.map = runtimeTex[texKey];
+      window.__mouthAperture.material.needsUpdate = true;
+      window.__mouthAperture.userData.texKey = texKey;
+    }
+    if (window.__mouthAperture.material) {
+      window.__mouthAperture.material.opacity = apertureActive ? 0.84 + Math.min(openDrive * 0.26, 0.14) : 0.0;
+    }
+  }
+  if (window.__teeth) window.__teeth.visible = false;
+  if (window.__teethGlint) {
+    const teethStrength = THREE.MathUtils.clamp((openAmount - 0.060) / 0.032, 0, 1);
+    const puckerDamp = THREE.MathUtils.clamp(1.0 - rawPucker * 0.85, 0.38, 1.0);
+    const vowelBoost = THREE.MathUtils.clamp(visAA * 0.30 + visE * 0.22, 0, 0.24);
+    const strength = Math.min(1.0, teethStrength * puckerDamp + vowelBoost);
+    window.__teethGlint.visible = strength > 0.10;
+    window.__teethGlint.scale.x = 0.78 + strength * 0.14 - Math.min(rawFunnel * 0.10, 0.06);
+    window.__teethGlint.scale.y = 0.78 + strength * 0.12;
+    window.__teethGlint.scale.z = 1.0;
+    if (window.__teethGlint.material) {
+      window.__teethGlint.material.opacity = 0.18 + strength * 0.24;
+    }
+  }
 }
 
 // Subtle head micro-motion — slow sway so the head isn't perfectly still
@@ -443,7 +701,7 @@ function applyHeadSway(t) {
 }
 
 // Iris micro-saccades: smooth target-based gaze drift with occasional retargets.
-// Keeps photo eyelids/sclera in place; only shifts the whole eye patch by tiny amounts.
+// The eyelid/sclera photo patches stay fixed; only the iris overlay moves.
 const gazeState = {
   x: 0, y: 0,
   targetX: 0, targetY: 0,
@@ -453,7 +711,7 @@ const gazeState = {
 };
 
 function applyGazeDrift(t) {
-  const eL = window.__eyeL, eR = window.__eyeR;
+  const eL = window.__irisL, eR = window.__irisR;
   if (!eL || !eR) return;
 
   // Retarget every 0.4–1.4 seconds (deterministic from t for recording)
@@ -501,11 +759,9 @@ function updateIdle(dt) {
     } else {
       blinkVal = 1.0 - (bPhase - 0.4) / 0.6; // 1→0 slow open
     }
-    setMorph('eyeBlinkLeft', blinkVal);
-    setMorph('eyeBlinkRight', blinkVal);
+    applyBlinkAmount(blinkVal);
   } else {
-    setMorph('eyeBlinkLeft', 0);
-    setMorph('eyeBlinkRight', 0);
+    applyBlinkAmount(0);
   }
 }
 
@@ -565,22 +821,15 @@ function updateCameraSway(now) {
 }
 
 // Deterministic render-at-time for offline 30fps capture
+let deterministicFrameMode = false;
 window.renderFrameAt = function(t) {
+  deterministicFrameMode = true;
   if (!headMesh || !lipsyncData) return;
   resetMorphs();
   animStartTime = 0;
   isAnimating = (t < lipsyncData.duration);
   updateLipSync(t);
-  // Deterministic blink at t
-  const blinkPeriod = 4.5;
-  const blinkCycle = t % blinkPeriod;
-  const bStart = blinkPeriod - 0.22;
-  if (blinkCycle > bStart) {
-    const bPhase = (blinkCycle - bStart) / 0.22;
-    const blinkVal = bPhase < 0.4 ? bPhase / 0.4 : 1.0 - (bPhase - 0.4) / 0.6;
-    setMorph('eyeBlinkLeft', blinkVal);
-    setMorph('eyeBlinkRight', blinkVal);
-  }
+  applyBlinkAmount(speechBlinkAmountAt(t));
   applyGazeDrift(t);
   applyHeadSway(t);
   // Fixed camera during recording
@@ -593,12 +842,13 @@ window.renderFrameAt = function(t) {
 let lastTime = performance.now() / 1000;
 function animate() {
   requestAnimationFrame(animate);
+  if (deterministicFrameMode) return;
   const now = performance.now() / 1000;
   const dt = now - lastTime;
   lastTime = now;
 
   updateLipSync(now);
-  if (isAnimating) { updateSpeechBlink(dt); applySpeechBlink(dt); }
+  if (isAnimating) applyBlinkAmount(speechBlinkAmountAt(now - animStartTime));
   updateIdle(dt);
   updateCameraSway(now);
   controls.update();
